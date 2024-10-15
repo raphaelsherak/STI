@@ -52,32 +52,25 @@ final.cohort <- bind_rows(amster.aug.only,amster.oct.r)
 # add dem data
 final.cohort <- left_join(final.cohort, dem_data)
 # add lab_test_data
-chlamydia_lab <- lab_tests_sheet %>% select(PAT_ENC_CSN_ID, EXTERNAL_NAME, RESULT_TIME, RESULT_UNIT, ORD_VALUE, COMPONENT_COMMENT) %>% filter(str_detect(EXTERNAL_NAME, "Chlam")) %>% 
+chlamydia_lab <- lab_tests_sheet %>% select(PAT_ENC_CSN_ID, EXTERNAL_NAME, RESULT_TIME, ORD_VALUE, COMPONENT_COMMENT) %>% filter(str_detect(EXTERNAL_NAME, "Chlam")) %>% 
   group_by(PAT_ENC_CSN_ID) %>% 
   mutate(Ct_Lab_Num = row_number()) %>%
   ungroup() %>%
   pivot_wider(
-    id_cols = PAT_ENC_CSN_ID,
+    id_cols = c(PAT_ENC_CSN_ID, EXTERNAL_NAME),
     names_from = Ct_Lab_Num,
     values_from = c(ORD_VALUE, COMPONENT_COMMENT),
-    names_glue = "Ct_Lab{Ct_Lab_Num}_{.value}"
+    names_glue = "Ct_Lab_{.value}_{Ct_Lab_Num}"
   )
-# plan to fix w/ pivot longer solution
-# final.cohort.ctlab <- left_join(final.cohort, chlamydia_lab, by = join_by(PAT_ENC_CSN_ID), relationship = "one-to-many") %>%  group_by(PAT_ENC_CSN_ID) %>% mutate(number = row_number()) %>% ungroup()
-final.cohort.ctlab1 <- final.cohort.ctlab %>% filter(number == 1) %>% select(-number) %>% 
+# plan to fix w/ pivot wider solution
+final.cohort.ctlab <- left_join(final.cohort, chlamydia_lab, by = join_by(PAT_ENC_CSN_ID), relationship = "one-to-many") %>%
   mutate(Filled_Within_Month = case_when(
     is.na(Filled_Within_Month) ~ 0,
     Filled_Within_Month == 1 ~ 1,
     Filled_Within_Month == "x" ~ 1,
     .default = NA
   )
-  )
-second.lab <- final.cohort.ctlab %>% filter(number == 2) %>% select(PAT_ENC_CSN_ID, EXTERNAL_NAME, RESULT_TIME, ORD_VALUE, COMPONENT_COMMENT)
-final.cohort.ctlab2 <- left_join(final.cohort.ctlab1, second.lab, by = join_by(PAT_ENC_CSN_ID), suffix = c(".1", ".2"))
-third.lab <- final.cohort.ctlab %>% filter(number == 3) %>% select(PAT_ENC_CSN_ID, EXTERNAL_NAME, RESULT_TIME, ORD_VALUE, COMPONENT_COMMENT) %>% rename_with(~ paste0(.x, ".3") , -PAT_ENC_CSN_ID)
-final.cohort.ctlab3 <- left_join(final.cohort.ctlab2, third.lab, by = join_by(PAT_ENC_CSN_ID)) 
-
-cohort.analysis.1<- final.cohort.ctlab3 %>% 
+  ) %>% 
   mutate(Filled_Rx = case_when(
     Data_available == 0 ~ NA,
     Filled_Rx == 1 ~ 1,
@@ -89,19 +82,21 @@ cohort.analysis.1<- final.cohort.ctlab3 %>%
     Data_available == 0 ~ NA,
     .default = NA
   ),
-  Ct_Tested = if_else(!is.na(ORD_VALUE.1), 1, 0),
+  Ct_Tested = if_else(!is.na(Ct_Lab_ORD_VALUE_1), 1, 0),
   Ct_Pos = case_when(
-    ORD_VALUE.1 == "Positive" | ORD_VALUE.2 == "Positive" | ORD_VALUE.3 == "Positive" ~ 1,
-    ORD_VALUE.1 == "Negative" & (ORD_VALUE.2 == "Negative" | is.na(ORD_VALUE.2)) & (ORD_VALUE.3 == "Negative" | is.na(ORD_VALUE.3)) ~ 0,
+    Ct_Lab_ORD_VALUE_1 == "Positive" | Ct_Lab_ORD_VALUE_2 == "Positive" | Ct_Lab_ORD_VALUE_3 == "Positive" ~ 1,
+    Ct_Lab_ORD_VALUE_1 == "Negative" & (Ct_Lab_ORD_VALUE_2 == "Negative" | is.na(Ct_Lab_ORD_VALUE_2)) & (Ct_Lab_ORD_VALUE_3 == "Negative" | is.na(Ct_Lab_ORD_VALUE_3)) ~ 0,
     .default = NA
   ),
   ) %>% 
   mutate(Ct_Results_Categorical = case_when(
-    is.na(ORD_VALUE.1) ~ "Not Performed",
-    (ORD_VALUE.1 == "Equivocal" | ORD_VALUE.1 == "Invalid") & is.na(ORD_VALUE.2) ~ "Test Error",
+    is.na(Ct_Lab_ORD_VALUE_1) ~ "Not Performed",
+    (Ct_Lab_ORD_VALUE_1 == "Equivocal" | Ct_Lab_ORD_VALUE_1 == "Invalid") & is.na(Ct_Lab_ORD_VALUE_1) ~ "Test Error",
     Ct_Pos == 1 ~ "Positive",
     Ct_Pos == 0 ~ "Negative"
   ))
+
+
 HIV_labs <- lab_tests_sheet %>% filter(EXTERNAL_NAME %in% c("HIV 1/2 Antibody Screen", "HIV 1 and 2 Antibody/HIV-1 Antigen Screen")) %>% select(PAT_ENC_CSN_ID, PAT_MRN_ID, COMPONENT_NAME, EXTERNAL_NAME, ORD_VALUE, RESULT_TIME) %>% mutate(HIV_Result = case_when(
   ORD_VALUE == "Positive" ~ 1,
   ORD_VALUE == "Repeatedly Reactive" ~ 1,
@@ -111,7 +106,7 @@ HIV_labs <- lab_tests_sheet %>% filter(EXTERNAL_NAME %in% c("HIV 1/2 Antibody Sc
 # upon review, 13 pts had 2 HIV tests done, sometimes days apart but all negative. 
 # double.hiv.labs.csn <- HIV_labs %>% group_by(PAT_ENC_CSN_ID) %>% mutate(count = row_number()) %>% ungroup() %>% filter(count > 1) %>% select(PAT_ENC_CSN_ID) %>% as_vector()
 # double.hiv.labs <- HIV_labs %>% filter(PAT_ENC_CSN_ID %in% double.hiv.labs.csn)
-cohort.analysis.1 <- left_join(cohort.analysis.1, HIV_labs) %>% mutate(HIV_Test = if_else(is.na(HIV_Test), 0, 1))
+final.cohort.ctlab <- left_join(final.cohort.ctlab, HIV_labs) %>% mutate(HIV_Test = if_else(is.na(HIV_Test), 0, 1))
 urine_lab <-  lab_tests_sheet %>% select(PAT_ENC_CSN_ID, EXTERNAL_NAME, RESULT_TIME, ORD_VALUE, COMPONENT_COMMENT) %>% filter(str_detect(EXTERNAL_NAME, "Urine")) %>% 
   group_by(PAT_ENC_CSN_ID) %>% 
   mutate(UCx_Num = row_number()) %>%
