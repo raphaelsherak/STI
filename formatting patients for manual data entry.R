@@ -53,7 +53,7 @@ final.cohort <- bind_rows(amster.aug.only,amster.oct.r)
 final.cohort <- left_join(final.cohort, dem_data)
 # add lab_test_data
 chlamydia_lab <- lab_tests_sheet %>% select(PAT_ENC_CSN_ID, EXTERNAL_NAME, RESULT_TIME, RESULT_UNIT, ORD_VALUE, COMPONENT_COMMENT) %>% filter(str_detect(EXTERNAL_NAME, "Chlam"))
-
+# plan to fix w/ pivot longer solution
 final.cohort.ctlab <- left_join(final.cohort, chlamydia_lab, by = join_by(PAT_ENC_CSN_ID), relationship = "one-to-many") %>%  group_by(PAT_ENC_CSN_ID) %>% mutate(number = row_number()) %>% ungroup()
 final.cohort.ctlab1 <- final.cohort.ctlab %>% filter(number == 1) %>% select(-number) %>% 
   mutate(Filled_Within_Month = case_when(
