@@ -128,4 +128,3 @@ dx_data_wide <- dx_data %>% group_by(PAT_ENC_CSN_ID) %>%
   )
 
 cohort.analysis.2 <- left_join(cohort.analysis.1, dx_data_wide) %>% remove_empty(c("rows", "cols"))
-
