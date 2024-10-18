@@ -51,13 +51,15 @@ amster.aug.only <- amster.aug %>% filter(!(PAT_ENC_CSN_ID %in% oct.pts) & !(is.n
 final.cohort <- bind_rows(amster.aug.only,amster.oct.r)
 # add dem data
 final.cohort <- left_join(final.cohort, dem_data)
+final.cohort.csn <- final.cohort$PAT_ENC_CSN_ID %>% as.character()
 # add lab_test_data
 chlamydia_lab <- lab_tests_sheet %>% select(PAT_ENC_CSN_ID, EXTERNAL_NAME, RESULT_TIME, ORD_VALUE, COMPONENT_COMMENT) %>% filter(str_detect(EXTERNAL_NAME, "Chlam")) %>% 
+  rename(Ct_Test_Name = EXTERNAL_NAME) %>% 
   group_by(PAT_ENC_CSN_ID) %>% 
   mutate(Ct_Lab_Num = row_number()) %>%
   ungroup() %>%
   pivot_wider(
-    id_cols = c(PAT_ENC_CSN_ID, EXTERNAL_NAME),
+    id_cols = c(PAT_ENC_CSN_ID, Ct_Test_Name),
     names_from = Ct_Lab_Num,
     values_from = c(ORD_VALUE, COMPONENT_COMMENT),
     names_glue = "Ct_Lab_{.value}_{Ct_Lab_Num}"
@@ -108,6 +110,7 @@ HIV_labs <- lab_tests_sheet %>% filter(EXTERNAL_NAME %in% c("HIV 1/2 Antibody Sc
 # double.hiv.labs <- HIV_labs %>% filter(PAT_ENC_CSN_ID %in% double.hiv.labs.csn)
 final.cohort.ctlab <- left_join(final.cohort.ctlab, HIV_labs) %>% mutate(HIV_Test = if_else(is.na(HIV_Test), 0, 1))
 urine_lab <-  lab_tests_sheet %>% select(PAT_ENC_CSN_ID, EXTERNAL_NAME, RESULT_TIME, ORD_VALUE, COMPONENT_COMMENT) %>% filter(str_detect(EXTERNAL_NAME, "Urine")) %>% 
+  filter(PAT_ENC_CSN_ID %in% final.cohort.csn) %>% 
   group_by(PAT_ENC_CSN_ID) %>% 
   mutate(UCx_Num = row_number()) %>%
   ungroup() %>%
@@ -115,9 +118,9 @@ urine_lab <-  lab_tests_sheet %>% select(PAT_ENC_CSN_ID, EXTERNAL_NAME, RESULT_T
     id_cols = PAT_ENC_CSN_ID,
     names_from = UCx_Num,
     values_from = c(ORD_VALUE, COMPONENT_COMMENT),
-    names_prefix = "UCx_"
+    names_glue = "UCx_{.value}_{UCx_Num}"
   )
-cohort.analysis.1 <- left_join(cohort.analysis.1, urine_lab)
+cohort.analysis.1 <- left_join(final.cohort.ctlab, urine_lab)
 
 # still need: HSV, Syphylis
 
