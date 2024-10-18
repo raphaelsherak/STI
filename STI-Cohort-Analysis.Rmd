@@ -1,0 +1,22 @@
+---
+title: "STI Cohort analysis"
+output: html_notebook
+---
+
+```{r packages and data, include=FALSE}
+packages<- c("tidyverse", "gtsummary", "janitor")
+lapply(packages, library, character.only=T)
+load("~/Documents/Current_Projects/STI/STI/STI_Cohort_Cleaned.RData")
+cohort<-cohort.analysis.2
+rm(cohort.analysis.2)
+```
+
+```{r table 1}
+cohort %>% mutate(SEXUAL_ORIENTATION = as.factor(SEXUAL_ORIENTATION), RACE = as.factor(RACE), ETHNICITY = as.factor(ETHNICITY), hispanic = if_else(ETHNICITY == "Hispanic or Latina/o/x" | ETHNICITY == "Puerto Rican", 1, 0), Ct_Results_Categorical = as.factor(Ct_Results_Categorical), straight = if_else(SEXUAL_ORIENTATION == "Straight", 1, 0), notstraight = case_when(
+  SEXUAL_ORIENTATION == "Lesbian or Gay" ~ 1,
+  SEXUAL_ORIENTATION == "Bisexual" ~ 1,
+  .default = 0
+)) %>% select(Filled_Rx, Any_Fill, Filled_Within_Month, Ct_Tested, Ct_Pos, Ct_Results_Categorical, AGE, GENDER, NG_Tested, NG_Pos, TV_Tested, TV_Pos, HIV_Test, HIV_Result) %>% 
+  tbl_summary(by = Filled_Rx) %>% add_p()
+```
+
