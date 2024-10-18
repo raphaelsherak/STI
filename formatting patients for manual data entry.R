@@ -64,7 +64,8 @@ chlamydia_lab <- lab_tests_sheet %>% select(PAT_ENC_CSN_ID, EXTERNAL_NAME, RESUL
     values_from = c(ORD_VALUE, COMPONENT_COMMENT),
     names_glue = "Ct_Lab_{.value}_{Ct_Lab_Num}"
   )
-# plan to fix w/ pivot wider solution
+
+invalid_equivocal_negative <- c("Invalid", "Equivocal", "Negative")
 final.cohort.ctlab <- left_join(final.cohort, chlamydia_lab, by = join_by(PAT_ENC_CSN_ID), relationship = "one-to-many") %>%
   mutate(Filled_Within_Month = case_when(
     is.na(Filled_Within_Month) ~ 0,
@@ -88,6 +89,7 @@ final.cohort.ctlab <- left_join(final.cohort, chlamydia_lab, by = join_by(PAT_EN
   Ct_Pos = case_when(
     Ct_Lab_ORD_VALUE_1 == "Positive" | Ct_Lab_ORD_VALUE_2 == "Positive" | Ct_Lab_ORD_VALUE_3 == "Positive" ~ 1,
     Ct_Lab_ORD_VALUE_1 == "Negative" & (Ct_Lab_ORD_VALUE_2 == "Negative" | is.na(Ct_Lab_ORD_VALUE_2)) & (Ct_Lab_ORD_VALUE_3 == "Negative" | is.na(Ct_Lab_ORD_VALUE_3)) ~ 0,
+    Ct_Lab_ORD_VALUE_1 %in% invalid_equivocal_negative & (Ct_Lab_ORD_VALUE_2 %in% invalid_equivocal_negative | is.na(Ct_Lab_ORD_VALUE_2)) ~ 0,
     .default = NA
   ),
   ) %>% 
@@ -120,7 +122,71 @@ urine_lab <-  lab_tests_sheet %>% select(PAT_ENC_CSN_ID, EXTERNAL_NAME, RESULT_T
     values_from = c(ORD_VALUE, COMPONENT_COMMENT),
     names_glue = "UCx_{.value}_{UCx_Num}"
   )
-cohort.analysis.1 <- left_join(final.cohort.ctlab, urine_lab)
+final.cohort.ctlab.urinelab <- left_join(final.cohort.ctlab, urine_lab)
+NG_TV_test_results <- read_excel("~/Documents/Current_Projects/STI/sti_jdat_population/2402241_gonorrhea_trichonomanas_vaginalis_test_results.xlsx")
+
+NG_NAAT_Lab <- NG_TV_test_results %>% 
+  filter(PAT_ENC_CSN_ID %in% final.cohort.csn) %>% 
+  filter(str_detect(EXTERNAL_NAME, "Neisseria gonorrhoeae, DNA Probe")) %>% 
+  group_by(PAT_ENC_CSN_ID) %>% 
+  mutate(NG_NAAT_Num = row_number()) %>%
+  filter(NG_NAAT_Num == 1) %>%  #5 patients had 3x NAAT tests done for some reason. all neg. will reduce tosimplify
+  ungroup() %>%
+  pivot_wider(
+    id_cols = PAT_ENC_CSN_ID,
+    names_from = NG_NAAT_Num,
+    values_from = c(ORD_VALUE, COMPONENT_COMMENT),
+    names_glue = "NG_NAAT_{.value}_{NG_NAAT_Num}"
+  )
+#only 1 patient had NG culture- was negative and had negative NAAT so will disregaurd. 
+final.cohort.ctlab.urinelab.nglab <- left_join(final.cohort.ctlab.urinelab, NG_NAAT_Lab) %>% 
+  mutate(NG_Tested = if_else(!is.na(NG_NAAT_ORD_VALUE_1), 1, 0),
+NG_Pos = case_when(
+  NG_NAAT_ORD_VALUE_1 == "Positive"  ~ 1,
+  NG_NAAT_ORD_VALUE_1 == "Negative"  ~ 0,
+  NG_NAAT_ORD_VALUE_1 %in% invalid_equivocal_negative ~ 0,
+  is.na(NG_NAAT_ORD_VALUE_1) ~ NA,
+  .default = NA
+),
+) %>% 
+  mutate(NG_Results_Categorical = case_when(
+    NG_Pos == 1 ~ "Positive",
+    is.na(NG_NAAT_ORD_VALUE_1) ~ "Not Performed",
+    (NG_NAAT_ORD_VALUE_1 == "Equivocal" | NG_NAAT_ORD_VALUE_1 == "Invalid") & is.na(NG_NAAT_ORD_VALUE_1) ~ "Test Error",
+    NG_Pos == 0 ~ "Negative"
+  ))
+
+
+TV_Lab <- NG_TV_test_results %>% 
+  filter(PAT_ENC_CSN_ID %in% final.cohort.csn) %>% 
+  filter(str_detect(EXTERNAL_NAME, "Trichomonas vaginalis by NAAT")) %>% 
+  group_by(PAT_ENC_CSN_ID) %>% 
+  mutate(TV_NAAT_Num = row_number()) %>%
+  filter(TV_NAAT_Num == 1) %>%  #26 patients had 2x TV NAAT tests done for some reason. all with same results as test 1, so will reduce to simplify
+  ungroup() %>%
+  pivot_wider(
+    id_cols = PAT_ENC_CSN_ID,
+    names_from = TV_NAAT_Num,
+    values_from = c(ORD_VALUE),
+    names_glue = "TV_NAAT_{.value}_{TV_NAAT_Num}"
+  )
+
+cohort.analysis.1 <- left_join(final.cohort.ctlab.urinelab.nglab, TV_Lab)  %>% 
+  mutate(TV_Tested = if_else(!is.na(TV_NAAT_ORD_VALUE_1), 1, 0),
+         TV_Pos = case_when(
+           TV_NAAT_ORD_VALUE_1 == "Positive"  ~ 1,
+           TV_NAAT_ORD_VALUE_1 == "Negative"  ~ 0,
+           TV_NAAT_ORD_VALUE_1 %in% invalid_equivocal_negative ~ 0,
+           is.na(TV_NAAT_ORD_VALUE_1) ~ NA,
+           .default = NA
+         ),
+  ) %>% 
+  mutate(TV_Results_Categorical = case_when(
+    TV_Pos == 1 ~ "Positive",
+    is.na(TV_NAAT_ORD_VALUE_1) ~ "Not Performed",
+    (TV_NAAT_ORD_VALUE_1 == "Equivocal" | TV_NAAT_ORD_VALUE_1 == "Invalid") & is.na(TV_NAAT_ORD_VALUE_1) ~ "Test Error",
+    TV_Pos == 0 ~ "Negative"
+  ))
 
 # still need: HSV, Syphylis
 
@@ -133,5 +199,6 @@ dx_data_wide <- dx_data %>% group_by(PAT_ENC_CSN_ID) %>%
     values_from = DX_NAME,
     names_prefix = "Diagnosis_"
   )
+
 
 cohort.analysis.2 <- left_join(cohort.analysis.1, dx_data_wide) %>% remove_empty(c("rows", "cols"))
