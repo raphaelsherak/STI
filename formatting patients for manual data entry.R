@@ -202,6 +202,15 @@ dx_data_wide <- dx_data %>% group_by(PAT_ENC_CSN_ID) %>%
 
 
 cohort.analysis.2 <- left_join(cohort.analysis.1, dx_data_wide) %>% remove_empty(c("rows", "cols"))
-# still need: HSV, Syphylis
+library(readxl)
+insurance.data <- read_excel("2402241_insurance_info.xlsx", 
+                                      col_types = c("text", "text", "date", 
+                                                    "text", "text"))
+
+
+cohort.analysis.2 <- cohort.analysis.2 %>% 
+  mutate(PAT_ENC_CSN_ID = as.character(PAT_ENC_CSN_ID)) %>% 
+  left_join(insurance.data)
 
 save(cohort.analysis.2, file = "STI_Cohort_Cleaned.RData")
+# still need: HSV, Syphylis
