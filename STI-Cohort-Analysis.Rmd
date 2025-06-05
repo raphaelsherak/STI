@@ -131,7 +131,7 @@ dembyfill <-
     #HIV_Result = "HIV Test Positive",
     CTNGPos = "Positive for Chlamydia and Gonorrhea",
     Insurance_3 = "Insurance",
-    PID = "PID"
+    PID = "PID Diagnosis"
   ) %>% tbl_summary(by = Filled_Rx_txt,) %>% add_overall() %>% add_p(
     test = list(all_continuous() ~ "wilcox.test", all_categorical() ~ "fisher.test") 
   ) %>% 
@@ -139,10 +139,13 @@ dembyfill <-
   add_stat_label() %>%
   as_gt() %>% tab_header("Demographics by Prescription Fill Status")
  dembyfill
+
+dembyfill %>% gtsave("table.one.docx")
+ 
 ```
 
-```{r PID Dx}
-df.reg <- df %>% select(Filled_Rx, PID, AGE, GENDER, Insurance_3, Race_Eth) %>% set_variable_labels(AGE = "Age", GENDER = "Sex", Insurance_3 = "Insurance", Race_Eth = "Race/Ethnicity")
+```{r regression tables}
+df.reg <- df %>% select(Filled_Rx, PID, AGE, GENDER, Insurance_3, Race_Eth) %>% set_variable_labels(AGE = "Age", GENDER = "Sex", Insurance_3 = "Insurance", Race_Eth = "Race/Ethnicity", PID = "PID Diagnosis")
 df.reg$GENDER <- relevel(df.reg$GENDER, ref = "Female")
 
 uv.tbl <-tbl_uvregression(
@@ -152,23 +155,20 @@ uv.tbl <-tbl_uvregression(
   method.args = list(family = binomial),
   hide_n = T,
   exponentiate = TRUE,
+  label = list(AGE = "Age", GENDER = "Sex", Insurance_3 = "Insurance", Race_Eth = "Race/Ethnicity", PID = "PID Diagnosis")
 ) 
-uv.tbl %>% as_gt() %>% tab_header("Univariate ORs")
+uv.tbl %>% 
+ # add_global_p(keep = T) %>% 
+  as_gt() %>% tab_header("Univariate ORs") 
 
-mv.tbl <- glm(Filled_Rx ~ PID + AGE + GENDER + Insurance_3 + Race_Eth, family = "binomial", data = df.reg) %>% tbl_regression(exponentiate = T)
-mv.tbl %>% as_gt() %>%  tab_header("Adusted ORs") 
-tbl_merge(list(uv.tbl, mv.tbl), tab_spanner = c("**Univariate ORs**","**Adusted ORs**"))
+mv.tbl.dat <- glm(Filled_Rx ~ PID + AGE + GENDER + Insurance_3 + Race_Eth, family = "binomial", data = df.reg)
+mv.tbl<-tbl_regression(mv.tbl.dat, exponentiate = T,  label = list(AGE = "Age", GENDER = "Sex", Insurance_3 = "Insurance", Race_Eth = "Race/Ethnicity", PID = "PID Diagnosis")) 
+ # %>% add_global_p(keep = T)
+mv.tbl %>% as_gt() %>%  tab_header("Multivariate ORs") 
+regerssion.tbl<-tbl_merge(list(uv.tbl, mv.tbl), tab_spanner = c("**Univariate ORs**","**Multivariate ORs**"))
+regerssion.tbl %>% as_gt() %>% gtsave("regression.tbl.docx")
 ```
 
-
-
-```{r Age}
-
-```
-
-```{r Female}
-
-```
 
 
 Need to consider pts w/ multiple visits
