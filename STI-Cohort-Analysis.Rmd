@@ -1,0 +1,234 @@
+---
+title: "STI Cohort analysis"
+output: html_notebook
+---
+
+```{r packages and data, include=FALSE}
+#packages<- c("tidyverse", "gtsummary", "janitor", "labelled", "haven", "gt")
+lapply(c("tidyverse", "gtsummary", "janitor", "labelled", "haven", "gt"), library, character.only=T)
+load("~/Documents/Current_Projects/STI/STI/STI_Cohort_Cleaned.RData")
+cohort<-cohort.analysis.2
+rm(cohort.analysis.2)
+```
+
+
+```{r}
+cohort <-
+  cohort %>% mutate(
+    SEXUAL_ORIENTATION = as.factor(SEXUAL_ORIENTATION),
+    RACE = as.factor(RACE),
+    ETHNICITY = as.factor(ETHNICITY),
+    hispanic = if_else(
+      ETHNICITY == "Hispanic or Latina/o/x" |
+        ETHNICITY == "Puerto Rican",
+      1,
+      0
+    ),
+    Ct_Results_Categorical = as.factor(Ct_Results_Categorical),
+    straight = if_else(SEXUAL_ORIENTATION == "Straight", 1, 0),
+    notstraight = case_when(
+      SEXUAL_ORIENTATION == "Lesbian or Gay" ~ 1,
+      SEXUAL_ORIENTATION == "Bisexual" ~ 1,
+      .default = 0
+    ),
+    Insurance = case_when(
+      PAYOR_FINANCIAL_CLASS %in% c("Medicaid", "Medicaid Managed Care") ~ "Medicaid",
+      PAYOR_FINANCIAL_CLASS %in% c("Medicare Managed Care", "Medicare" ) ~ "Medicare",
+      PAYOR_FINANCIAL_CLASS %in% c("Managed Care", "Worker's Comp", "Commercial", "BCBS") ~ "Private",
+      PAYOR_NAME %in% c("PROG VETERANS ADMINISTRATION", "TRICARE") ~ "Millitary",
+      PAYOR_FINANCIAL_CLASS == "NULL" | PAYOR_NAME == "COVID19 HRSA UNINSURED T&T FUND" ~ "Uninsured",
+      is.na(PAYOR_FINANCIAL_CLASS) ~ NA,
+      PAYOR_FINANCIAL_CLASS == "Other" ~ "Other"
+    ),
+    PID = ifelse(
+    grepl("PID", Diagnosis_1, ignore.case = TRUE) |
+    grepl("Pelvic Inflammatory Disease", Diagnosis_1, ignore.case = TRUE) |
+    grepl("PID", Diagnosis_2, ignore.case = TRUE) |
+    grepl("Pelvic Inflammatory Disease", Diagnosis_2, ignore.case = TRUE) |
+    grepl("PID", Diagnosis_3, ignore.case = TRUE) |
+    grepl("Pelvic Inflammatory Disease", Diagnosis_3, ignore.case = TRUE), 1, 0)) %>% 
+  mutate(Insurance_3 = case_when(
+    Insurance %in% c("Medicaid", "Medicare", "Millitary") | PAYOR_NAME == "PROG SEXUAL ASSAULT" ~ "Public",
+    Insurance == "Private"~ "Private",
+    Insurance == "Uninsured" ~ "Uninsured",
+    .default = NA
+  )) %>% 
+  mutate(
+    Race_Eth = case_when(
+      hispanic == 1 ~ "Hispanic",
+      RACE ==  "Black or African American" ~ "Non-Hispanic Black",
+      .default = "Other"
+    )
+  )
+cohort$Race_Eth<-as_factor(cohort$Race_Eth)
+cohort$Race_Eth <- relevel(cohort$Race_Eth, ref = "Other")
+cohort$GENDER <- as_factor(cohort$GENDER)
+cohort$GENDER <- relevel(cohort$GENDER, ref = "Male")
+```
+
+```{r cohort adults only}
+cohort<-cohort %>% filter(AGE >=18)
+```
+
+
+```{r cohort after exclusions}
+#patients with fill data
+cohort.data <- cohort %>% filter(Data_available == 1)
+#153 missing fill data (8.4%)
+#Now filtering so only 1 visit every 30 days.
+df<- cohort.data %>% 
+group_by(PAT_MRN_ID) %>%
+  arrange(date) %>%
+  mutate(PreviousDate = lag(date)) %>%
+  filter(is.na(PreviousDate) | (date - PreviousDate) > 30) %>%
+  select(-PreviousDate) %>%
+  ungroup()
+# 11 visits from 11 different patients who were within 30 days
+```
+
+Table 1 by fill
+
+```{r}
+dembyfill <-
+  df %>%  mutate(
+    CTNGPos = if_else(Ct_Pos == 1 &
+                        NG_Pos == 1, 1, 0),
+    Filled_Rx_txt = case_when(Filled_Rx == 0 ~ "Didn't Fill",
+                              Filled_Rx == 1 ~ "Filled")
+  ) %>%
+  #set_value_labels(Filled_Rx = c("Filled Prescription" = 1, "Didn't Fill Prescription" = 0)) %>%
+  select(
+    Filled_Rx_txt,
+    #Filled_Within_Month,
+    AGE,
+    GENDER,
+    Race_Eth,
+    Ct_Tested,
+    Ct_Pos,
+    NG_Tested,
+    NG_Pos,
+    TV_Tested,
+    TV_Pos,
+    HIV_Test,
+    #HIV_Result,
+    CTNGPos,
+    Insurance_3,
+    PID
+  ) %>%
+  set_variable_labels(
+    Filled_Rx_txt = "Filled Prescription",
+   # Filled_Within_Month = "Filled Within 30 Days",
+    AGE = "Age",
+    GENDER = "Sex",
+    Race_Eth = "Race/Ethnicity",
+    Ct_Tested = "Tested for Chlamydia",
+    Ct_Pos = "Chlamydia Test Positive",
+    NG_Tested = "Tested for Gonorrhea",
+    NG_Pos = "Gonorrhea Test Positive",
+    TV_Tested = "Tested for Trichamonas",
+    TV_Pos = "Trichamonas Test Positive",
+    HIV_Test = "Tested for HIV",
+    #HIV_Result = "HIV Test Positive",
+    CTNGPos = "Positive for Chlamydia and Gonorrhea",
+    Insurance_3 = "Insurance",
+    PID = "PID Diagnosis"
+  ) %>% tbl_summary(by = Filled_Rx_txt, percent = 'row') %>% add_overall(statistic = all_categorical() ~ "{n}") %>% add_p(
+    test = list(all_continuous() ~ "wilcox.test", all_categorical() ~ "fisher.test") 
+  ) %>% 
+  add_q(method = "fdr") %>% 
+  add_stat_label() %>%
+  as_gt() %>% tab_header("Demographics by Prescription Fill Status")
+ dembyfill
+
+dembyfill %>% gtsave("table.one.docx")
+ 
+```
+
+```{r regression tables}
+df.reg <- df %>% select(Filled_Rx, PID, AGE, GENDER, Insurance_3, Race_Eth) %>% set_variable_labels(AGE = "Age", GENDER = "Sex", Insurance_3 = "Insurance", Race_Eth = "Race/Ethnicity", PID = "PID Diagnosis")
+df.reg$GENDER <- relevel(df.reg$GENDER, ref = "Female")
+
+uv.tbl <-tbl_uvregression(
+  df.reg,
+  method = glm,
+  y = Filled_Rx,
+  method.args = list(family = binomial),
+  hide_n = T,
+  exponentiate = TRUE,
+  label = list(AGE = "Age", GENDER = "Sex", Insurance_3 = "Insurance", Race_Eth = "Race/Ethnicity", PID = "PID Diagnosis")
+) 
+uv.tbl %>% 
+ # add_global_p(keep = T) %>% 
+  as_gt() %>% tab_header("Univariate ORs") 
+
+mv.tbl.dat <- glm(Filled_Rx ~ PID + AGE + GENDER + Insurance_3 + Race_Eth, family = "binomial", data = df.reg)
+mv.tbl<-tbl_regression(mv.tbl.dat, exponentiate = T,  label = list(AGE = "Age", GENDER = "Sex", Insurance_3 = "Insurance", Race_Eth = "Race/Ethnicity", PID = "PID Diagnosis")) 
+ # %>% add_global_p(keep = T)
+mv.tbl %>% as_gt() %>%  tab_header("Multivariate ORs") 
+regerssion.tbl<-tbl_merge(list(uv.tbl, mv.tbl), tab_spanner = c("**Univariate ORs**","**Multivariate ORs**"))
+regerssion.tbl %>% as_gt() %>% gtsave("regression.tbl.docx")
+```
+
+
+
+Need to consider pts w/ multiple visits
+```{r table 1}
+demotable<- cohort %>% mutate(SEXUAL_ORIENTATION = as.factor(SEXUAL_ORIENTATION), RACE = as.factor(RACE), ETHNICITY = as.factor(ETHNICITY), hispanic = if_else(ETHNICITY == "Hispanic or Latina/o/x" | ETHNICITY == "Puerto Rican", 1, 0), Ct_Results_Categorical = as.factor(Ct_Results_Categorical), straight = if_else(SEXUAL_ORIENTATION == "Straight", 1, 0), notstraight = case_when(
+  SEXUAL_ORIENTATION == "Lesbian or Gay" ~ 1,
+  SEXUAL_ORIENTATION == "Bisexual" ~ 1,
+  .default = 0
+)) %>% select(Filled_Rx, Any_Fill, Filled_Within_Month, Ct_Tested, Ct_Pos, Ct_Results_Categorical, AGE, GENDER, hispanic, RACE, NG_Tested, NG_Pos, TV_Tested, TV_Pos, HIV_Test, HIV_Result, Data_available, PAYOR_FINANCIAL_CLASS, PAYOR_NAME) %>% 
+  tbl_summary()
+demotable
+
+dembydata <- cohort %>% mutate(SEXUAL_ORIENTATION = as.factor(SEXUAL_ORIENTATION), RACE = as.factor(RACE), ETHNICITY = as.factor(ETHNICITY), hispanic = if_else(ETHNICITY == "Hispanic or Latina/o/x" | ETHNICITY == "Puerto Rican", 1, 0), Ct_Results_Categorical = as.factor(Ct_Results_Categorical), straight = if_else(SEXUAL_ORIENTATION == "Straight", 1, 0), notstraight = case_when(
+  SEXUAL_ORIENTATION == "Lesbian or Gay" ~ 1,
+  SEXUAL_ORIENTATION == "Bisexual" ~ 1,
+  .default = 0
+)) %>% select(Filled_Rx, Any_Fill, Filled_Within_Month, Ct_Tested, Ct_Pos, Ct_Results_Categorical, AGE, GENDER, NG_Tested, NG_Pos, TV_Tested, TV_Pos, HIV_Test, HIV_Result, Data_available) %>% set_value_labels(Data_available = c("Available" = 1, "Missing" = 0)) %>% 
+  tbl_summary(by = Data_available) %>% add_p()
+dembydata
+
+dembyfilled<- cohort %>% mutate(SEXUAL_ORIENTATION = as.factor(SEXUAL_ORIENTATION), RACE = as.factor(RACE), ETHNICITY = as.factor(ETHNICITY), Data_available = as.factor(Data_available), hispanic = if_else(ETHNICITY == "Hispanic or Latina/o/x" | ETHNICITY == "Puerto Rican", 1, 0), Ct_Results_Categorical = as.factor(Ct_Results_Categorical), straight = if_else(SEXUAL_ORIENTATION == "Straight", 1, 0), notstraight = case_when(
+  SEXUAL_ORIENTATION == "Lesbian or Gay" ~ 1,
+  SEXUAL_ORIENTATION == "Bisexual" ~ 1,
+  .default = 0
+)) %>% 
+  mutate(CTNGPos = if_else(Ct_Pos == 1 & NG_Pos ==1, 1, 0)) %>% 
+  filter(Data_available == 1) %>% 
+  select(Filled_Rx, Any_Fill, RACE, Filled_Within_Month, Ct_Tested, Ct_Pos, Ct_Results_Categorical, AGE, GENDER, NG_Tested, NG_Pos, TV_Tested, TV_Pos, HIV_Test, HIV_Result, CTNGPos, PAYOR_FINANCIAL_CLASS, PAYOR_NAME) %>% 
+  tbl_summary(by = Filled_Rx) %>% add_p() %>% as_gt() %>% tab_header("demographics by fill")
+dembyfilled
+
+cohort %>% mutate(SEXUAL_ORIENTATION = as.factor(SEXUAL_ORIENTATION), RACE = as.factor(RACE), ETHNICITY = as.factor(ETHNICITY), hispanic = if_else(ETHNICITY == "Hispanic or Latina/o/x" | ETHNICITY == "Puerto Rican", 1, 0), Ct_Results_Categorical = as.factor(Ct_Results_Categorical), straight = if_else(SEXUAL_ORIENTATION == "Straight", 1, 0), notstraight = case_when(
+  SEXUAL_ORIENTATION == "Lesbian or Gay" ~ 1,
+  SEXUAL_ORIENTATION == "Bisexual" ~ 1,
+  .default = 0
+)) %>% 
+  filter(Data_available == 1) %>% 
+  select(Filled_Rx, Any_Fill, Filled_Within_Month, Ct_Tested, Ct_Pos, Ct_Results_Categorical, AGE, GENDER, NG_Tested, NG_Pos, TV_Tested, TV_Pos, HIV_Test, HIV_Result) %>% 
+  tbl_summary(by = Ct_Pos) %>% add_p()
+
+
+```
+
+```{r pts with multiple visits}
+multivisitpt <- cohort %>% 
+  filter(Data_available == 1) %>% 
+  group_by(PAT_MRN_ID) %>% 
+  filter(n() > 1) %>%
+  mutate(Difference = difftime(date, lag(date), units = "days"),
+         WithinOneMonth = !is.na(Difference) & abs(as.numeric(Difference)) <= 30) %>%
+  filter(WithinOneMonth | lead(WithinOneMonth, default = FALSE)) %>%
+  select(-Difference, -WithinOneMonth) %>%
+  ungroup()
+
+ptsmultiplevisits <- cohort %>% 
+  semi_join(multivisitpt, by = "PAT_MRN_ID") %>% 
+  arrange(PAT_MRN_ID, date)
+
+ptsmultiplevisits.shortened <- ptsmultiplevisits %>% 
+  select(PAT_MRN_ID, PAT_ENC_CSN_ID, date, Data_available, Filled_Rx, Filled_Within_Month, Any_Fill)
+
+```
+
